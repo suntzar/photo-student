@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gerenciador de Fotos dos Alunos</title>
+    <!-- JSZip e FileSaver via CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js" defer></script>
+    <style>
+        body {
+            font-family: "Nunito Sans", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background-color: #fff;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 900px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            text-align: center;
+            color: #3351e0;
+            margin-bottom: 25px;
+        }
+        .controles-gerais {
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 6px;
+            margin-bottom: 25px;
+        }
+        .controles-gerais button, .controles-gerais label {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1em;
+            transition: background-color 0.3s ease;
+        }
+        .controles-gerais button {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .controles-gerais button:hover {
+            background-color: #45a049;
+        }
+        .controles-gerais label {
+            background-color: #007bff;
+            color: white;
+            display: inline-block;
+        }
+        .controles-gerais label:hover {
+            background-color: #0069d9;
+        }
+        .controles-gerais input[type="file"] {
+            display: none; /* Oculta o input original */
+        }
+
+        .lista-alunos {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        .aluno-card {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 15px;
+            background-color: #fdfdfd;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        .aluno-card img.preview-foto {
+            width: 100px;
+            height: 133px; /* Proporção 3x4 para 100px de largura */
+            object-fit: cover;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            background-color: #e0e0e0; /* Fundo para quando não há imagem */
+        }
+        .aluno-card .nome-aluno {
+            font-weight: 700;
+            margin-bottom: 5px;
+            font-size: 0.95em;
+        }
+        .aluno-card .turma-aluno {
+            font-size: 0.85em;
+            color: #555;
+            margin-bottom: 10px;
+        }
+        .aluno-card input[type="file"] {
+            display: none;
+        }
+        .aluno-card .upload-label {
+            background-color: #5c6bc0;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+            display: inline-block;
+            margin-top: 5px;
+        }
+        .aluno-card .upload-label:hover {
+            background-color: #515db4;
+        }
+        .status-upload {
+            font-size: 0.75em;
+            color: green;
+            margin-top: 5px;
+            height: 1em; /* Para evitar que o layout salte */
+        }
+        .link-voltar {
+            display: block;
+            text-align: center;
+            margin-top: 30px;
+            color: #3351e0;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .link-voltar:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gerenciador de Fotos dos Alunos</h1>
+
+        <div class="controles-gerais">
+            <label for="inputCarregarZip">Carregar ZIP com Fotos
+                <input type="file" id="inputCarregarZip" accept=".zip">
+            </label>
+            <button id="btnSalvarZip">Salvar ZIP com Fotos</button>
+        </div>
+
+        <div class="lista-alunos" id="listaAlunosContainer">
+            <!-- Alunos serão listados aqui -->
+            <p>Carregando dados dos alunos...</p>
+        </div>
+    </div>
+    <a href="index.html" class="link-voltar">Voltar para a Página de Cartões</a> <!-- Assumindo que sua página principal é index.html -->
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            const listaAlunosContainer = document.getElementById('listaAlunosContainer');
+            const btnSalvarZip = document.getElementById('btnSalvarZip');
+            const inputCarregarZip = document.getElementById('inputCarregarZip');
+            const chaveLocalStorage = 'dadosCartoesEscolaresUnificados';
+
+            // Armazena os arquivos de imagem em memória antes de zipar/salvar
+            // A chave será o nome final do arquivo (ex: "Anthony_Levi_Araujo_Gomes_Creche_III_Matutino.png")
+            // O valor será o objeto File ou um Blob da imagem.
+            let imagensParaZipar = {};
+
+            function gerarNomeArquivoFoto(nomeAluno, turma) {
+                // Limpa e formata o nome do aluno e turma para nome de arquivo
+                const limparString = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-zA-Z0-9\s_]/g, "").replace(/\s+/g, "_");
+                const nomeLimpo = limparString(nomeAluno);
+                const turmaLimpa = limparString(turma);
+                return `${nomeLimpo}_${turmaLimpa}.png`; // Força a extensão .png
+            }
+
+            function exibirAlunos(dadosAlunos) {
+                if (!listaAlunosContainer) return;
+                if (!dadosAlunos || dadosAlunos.length === 0) {
+                    listaAlunosContainer.innerHTML = "<p>Nenhum dado de aluno encontrado no localStorage. Por favor, gere os cartões na página principal primeiro.</p>";
+                    return;
+                }
+
+                listaAlunosContainer.innerHTML = ''; // Limpa a lista
+
+                dadosAlunos.forEach((aluno, index) => {
+                    const nomeArquivoEsperado = gerarNomeArquivoFoto(aluno.nomeAluno, aluno.turma);
+
+                    const card = document.createElement('div');
+                    card.className = 'aluno-card';
+                    card.dataset.alunoId = index; // Para identificar o aluno
+
+                    const preview = document.createElement('img');
+                    preview.className = 'preview-foto';
+                    preview.id = `preview-${index}`;
+                    preview.alt = `Preview foto ${aluno.nomeAluno}`;
+                    preview.src = "#"; // Placeholder ou imagem carregada do ZIP
+
+                    const nome = document.createElement('p');
+                    nome.className = 'nome-aluno';
+                    nome.textContent = aluno.nomeAluno;
+
+                    const turma = document.createElement('p');
+                    turma.className = 'turma-aluno';
+                    turma.textContent = aluno.turma;
+
+                    const inputUpload = document.createElement('input');
+                    inputUpload.type = 'file';
+                    inputUpload.accept = 'image/*';
+                    inputUpload.id = `upload-${index}`;
+                    inputUpload.style.display = 'none'; // Oculto
+
+                    const uploadLabel = document.createElement('label');
+                    uploadLabel.className = 'upload-label';
+                    uploadLabel.htmlFor = `upload-${index}`;
+                    uploadLabel.textContent = 'Enviar Foto';
+
+                    const statusUpload = document.createElement('p');
+                    statusUpload.className = 'status-upload';
+                    statusUpload.id = `status-${index}`;
+
+
+                    inputUpload.addEventListener('change', function (event) {
+                        const file = event.target.files[0];
+                        if (file) {
+                            const reader = new FileReader();
+                            reader.onload = function (e) {
+                                document.getElementById(`preview-${index}`).src = e.target.result;
+                                // A imagem é armazenada com o nome final desejado.
+                                // O JSZip espera um Blob ou ArrayBuffer, etc.
+                                // Se for para usar o arquivo original mas renomear no ZIP:
+                                imagensParaZipar[nomeArquivoEsperado] = file;
+                                document.getElementById(`status-${index}`).textContent = `Foto selecionada: ${file.name}`;
+                                console.log(`Imagem para ${aluno.nomeAluno} pronta para zipar como ${nomeArquivoEsperado}`);
+                            }
+                            reader.readAsDataURL(file);
+                        }
+                    });
+
+                    card.appendChild(preview);
+                    card.appendChild(nome);
+                    card.appendChild(turma);
+                    card.appendChild(inputUpload);
+                    card.appendChild(uploadLabel);
+                    card.appendChild(statusUpload);
+                    listaAlunosContainer.appendChild(card);
+                });
+            }
+
+            function carregarDadosAlunos() {
+                const dadosSalvos = localStorage.getItem(chaveLocalStorage);
+                if (dadosSalvos) {
+                    try {
+                        const dadosParseados = JSON.parse(dadosSalvos);
+                        exibirAlunos(dadosParseados);
+                    } catch (e) {
+                        console.error("Erro ao carregar dados do localStorage:", e);
+                        listaAlunosContainer.innerHTML = "<p>Erro ao carregar dados dos alunos. Tente recarregar os dados na página principal.</p>";
+                    }
+                } else {
+                    listaAlunosContainer.innerHTML = "<p>Nenhum dado de aluno encontrado. Gere os cartões na página principal primeiro.</p>";
+                }
+            }
+
+            btnSalvarZip.addEventListener('click', async function () {
+                if (Object.keys(imagensParaZipar).length === 0) {
+                    alert("Nenhuma imagem foi enviada para ser salva no ZIP.");
+                    return;
+                }
+
+                const zip = new JSZip();
+                for (const nomeFinalArquivo in imagensParaZipar) {
+                    const arquivoOriginal = imagensParaZipar[nomeFinalArquivo];
+                    // JSZip pode adicionar o arquivo diretamente.
+                    // A renomeação ocorre ao adicionar ao zip.
+                    zip.file(nomeFinalArquivo, arquivoOriginal);
+                    console.log(`Adicionando ${arquivoOriginal.name} ao ZIP como ${nomeFinalArquivo}`);
+                }
+
+                try {
+                    const conteudoZip = await zip.generateAsync({ type: "blob" });
+                    saveAs(conteudoZip, "fotos_alunos.zip");
+                    alert("Arquivo ZIP gerado e download iniciado!");
+                } catch (error) {
+                    console.error("Erro ao gerar o ZIP:", error);
+                    alert("Ocorreu um erro ao gerar o arquivo ZIP.");
+                }
+            });
+
+            inputCarregarZip.addEventListener('change', async function(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    const zip = new JSZip();
+                    try {
+                        const carregado = await zip.loadAsync(file);
+                        const dadosAlunosLS = JSON.parse(localStorage.getItem(chaveLocalStorage) || "[]");
+                        let arquivosEncontrados = 0;
+
+                        // Limpa imagensParaZipar e previews antes de carregar novas
+                        imagensParaZipar = {};
+                        document.querySelectorAll('.preview-foto').forEach(img => img.src = "#");
+                        document.querySelectorAll('.status-upload').forEach(p => p.textContent = "");
+
+
+                        for (const nomeNoZip in carregado.files) {
+                            if (!carregado.files[nomeNoZip].dir) { // Ignora diretórios
+                                const arquivoDoZip = carregado.files[nomeNoZip];
+                                const blob = await arquivoDoZip.async("blob");
+
+                                // Tenta encontrar o aluno correspondente pelo nome do arquivo no ZIP
+                                // Esta parte pode precisar de uma lógica mais robusta se os nomes não baterem 100%
+                                const alunoIndex = dadosAlunosLS.findIndex(aluno => {
+                                    const nomeArquivoEsperado = gerarNomeArquivoFoto(aluno.nomeAluno, aluno.turma).toLowerCase();
+                                    return nomeNoZip.toLowerCase() === nomeArquivoEsperado;
+                                });
+
+                                if (alunoIndex !== -1) {
+                                    const previewImg = document.getElementById(`preview-${alunoIndex}`);
+                                    if (previewImg) {
+                                        previewImg.src = URL.createObjectURL(blob);
+                                    }
+                                    // Recria o objeto File para consistência, se necessário, ou usa o Blob
+                                    const arquivoRecriado = new File([blob], nomeNoZip, { type: blob.type });
+                                    imagensParaZipar[nomeNoZip] = arquivoRecriado; // Usa o nome original do zip como chave temporária
+                                                                               // ou o nome esperado se quiser forçar.
+                                    const nomeArquivoEsperadoParaStatus = gerarNomeArquivoFoto(dadosAlunosLS[alunoIndex].nomeAluno, dadosAlunosLS[alunoIndex].turma);
+                                    const statusP = document.getElementById(`status-${alunoIndex}`);
+                                    if(statusP) statusP.textContent = `Foto carregada: ${nomeArquivoEsperadoParaStatus}`;
+                                    arquivosEncontrados++;
+                                    console.log(`Imagem ${nomeNoZip} carregada do ZIP e associada.`);
+                                } else {
+                                    console.warn(`Arquivo ${nomeNoZip} do ZIP não correspondeu a nenhum aluno.`);
+                                }
+                            }
+                        }
+                        if (arquivosEncontrados > 0) {
+                            alert(`${arquivosEncontrados} fotos carregadas e associadas do arquivo ZIP!`);
+                        } else {
+                            alert("Nenhuma foto no ZIP correspondeu aos nomes de arquivo esperados para os alunos.");
+                        }
+
+                    } catch (error) {
+                        console.error("Erro ao carregar ou processar o arquivo ZIP:", error);
+                        alert("Ocorreu um erro ao carregar o ZIP. Verifique se é um arquivo ZIP válido.");
+                    }
+                }
+                // Limpa o valor do input para permitir carregar o mesmo arquivo novamente se necessário
+                event.target.value = null;
+            });
+
+            // Carrega a lista de alunos ao iniciar
+            carregarDadosAlunos();
+        });
+    </script>
+</body>
+</html>
