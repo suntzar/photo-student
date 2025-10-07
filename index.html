@@ -185,6 +185,7 @@
             const card = document.createElement("div");
             card.className = "aluno-card";
             card.dataset.alunoId = aluno.id;
+            card.dataset.nomeAluno = aluno.nomeAluno; // Adicionado para busca por nome
             card.dataset.nomeArquivo = nomeArquivoEsperado;
 
             const preview = document.createElement("img");
@@ -308,10 +309,18 @@
               for (const nomeNoZip in carregado.files) {
                 if (!carregado.files[nomeNoZip].dir) {
                   const arquivoDoZip = carregado.files[nomeNoZip];
+                  const nomeBaseArquivo = nomeNoZip.substring(0, nomeNoZip.lastIndexOf(".")) || nomeNoZip;
+
                   const blob = await arquivoDoZip.async("blob");
-                  const cardAluno = document.querySelector(`.aluno-card[data-nome-arquivo="${nomeNoZip}"]`);
+
+                  // Tenta encontrar por ID e depois por nome do aluno
+                  let cardAluno = document.querySelector(`.aluno-card[data-aluno-id="${nomeBaseArquivo}"]`);
+                  if (!cardAluno) {
+                    cardAluno = document.querySelector(`.aluno-card[data-nome-aluno="${nomeBaseArquivo}"]`);
+                  }
 
                   if (cardAluno) {
+                    const nomeArquivoOriginal = arquivoDoZip.name;
                     const alunoId = cardAluno.dataset.alunoId;
                     const previewImg = document.getElementById(`preview-${alunoId}`);
                     const statusP = document.getElementById(`status-${alunoId}`);
@@ -319,9 +328,9 @@
                     if (previewImg) {
                       previewImg.src = URL.createObjectURL(blob);
                     }
-                    const arquivoRecriado = new File([blob], nomeNoZip, { type: blob.type });
-                    imagensParaZipar[nomeNoZip] = arquivoRecriado;
-                    if (statusP) statusP.textContent = `Carregada: ${nomeNoZip}`;
+                    const arquivoRecriado = new File([blob], nomeArquivoOriginal, { type: blob.type });
+                    imagensParaZipar[cardAluno.dataset.nomeArquivo] = arquivoRecriado; // Usa o nome de arquivo padrão (ID.jpg)
+                    if (statusP) statusP.textContent = `Carregada: ${nomeArquivoOriginal}`;
                     arquivosEncontrados++;
                   } else {
                     console.warn(`Arquivo ${nomeNoZip} do ZIP não correspondeu a nenhum aluno.`);
